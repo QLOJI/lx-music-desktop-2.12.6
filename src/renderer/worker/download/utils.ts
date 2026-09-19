@@ -3,6 +3,9 @@ import { filterFileName } from '@common/utils/common'
 import { buildLyrics } from './lrcTool'
 import fs from 'fs'
 import { clipFileNameLength, clipNameLength, formatMusicName } from '@common/utils/tools'
+// quality.ts 是纯常量 + 纯函数（不引 store / vue），worker 里可以直接用，
+// 下载判断音质必须跟小标、播放用同一套，别在这儿另写一套
+import { canUseMaster, hasQuality, isMasterQuality } from '@renderer/core/music/quality'
 
 /**
  * 保存歌词文件
@@ -37,6 +40,9 @@ export const getExt = (type: string): LX.Download.FileExt => {
       return 'ape'
     case 'flac':
     case 'flac24bit':
+    // 母带 / 全景声基本都是 flac 流，按 mp3 存会存出个名字跟内容对不上的文件
+    case 'master':
+    case 'atmos':
       return 'flac'
     case 'wav':
       return 'wav'
@@ -55,12 +61,21 @@ export const getExt = (type: string): LX.Download.FileExt => {
  * @param qualityList
  */
 export const getMusicType = (musicInfo: LX.Music.MusicInfoOnline, type: LX.Quality, qualityList: LX.QualityList): LX.Quality => {
+  // master / atmos 是客户端虚拟出来的音质，音源脚本声明的音质列表（白名单过滤过）里根本没有它们，
+  // 不能被下面的 list 判断顺手改成别的档 —— 用户点了 Master，下载就得真去要 Master
+  if (isMasterQuality(type)) {
+    // 但这首歌连 SQ 及以上都没有的话，要母带必然失败，退回它有的最高音质（跟别的一样）
+    if (canUseMaster(musicInfo)) return type
+    type = 'flac24bit'
+  }
   let list = qualityList[musicInfo.source]
   if (!list) return '128k'
   if (!list.includes(type)) type = list[list.length - 1]
   const rangeType = QUALITYS.slice(QUALITYS.indexOf(type))
-  for (const type of rangeType) {
-    if (musicInfo.meta._qualitys[type]) return type
+  for (const itemType of rangeType) {
+    // 用 hasQuality 跳过各源解析器造出来的假条目（size 是 '0 B' 那种），
+    // 免得挑中一个取不到的档，下载直接失败
+    if (hasQuality(musicInfo.meta._qualitys, itemType)) return itemType
   }
   return '128k'
 }
