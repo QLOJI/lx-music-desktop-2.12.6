@@ -55,51 +55,59 @@ export const getPlayQualityList = (quality: LX.Quality, musicInfo: LX.Music.Musi
 }
 
 export interface QualityBadge {
-  labelKey: string
+  label: string
   theme: 'primary' | 'secondary'
 }
 
 /**
- * 歌曲音质小标，返回 null 表示没有可显示的标签
+ * 歌曲音质小标，返回 null 表示没有可显示的标签。
+ * 标签直接写死不走 i18n：这些值在所有语言包里都是同一串（Master / SQ / 24bit / 192K …），
+ * 而且语言包漏同步时 t() 会把键名原样吐出来。
  * @param detail 是否显示 192K / 128K 这类低音质标签（「我的列表」需要，搜索列表不需要）
  */
 export const getQualityBadge = (musicInfo: LX.Music.MusicInfo, detail = false): QualityBadge | null => {
   // 本地文件没有音质概念，不显示音质小标（只显示源名）
   if (musicInfo.source == 'local') return null
   const qualitys = musicInfo.meta._qualitys
-  if (qualitys == null) return detail ? { labelKey: 'tag__128k', theme: 'secondary' } : null
+  if (qualitys == null) return detail ? { label: '128K', theme: 'secondary' } : null
 
   // 音源脚本真的声明了 master / atmos 时以实际音质为准
-  if (qualitys.master) return { labelKey: 'tag__master', theme: 'primary' }
-  if (qualitys.atmos) return { labelKey: 'tag__atmos', theme: 'primary' }
+  if (qualitys.master) return { label: 'Master', theme: 'primary' }
+  if (qualitys.atmos) return { label: 'Atmos', theme: 'primary' }
   // TX / KG / WY 的 SQ 及以上统一显示 Master
-  if (canUseMaster(musicInfo)) return { labelKey: 'tag__master', theme: 'primary' }
-  if (qualitys.flac24bit) return { labelKey: 'tag__lossless_24bit', theme: 'primary' }
-  if (qualitys.ape || qualitys.flac || qualitys.wav) return { labelKey: 'tag__lossless', theme: 'primary' }
-  if (qualitys['320k']) return { labelKey: 'tag__high_quality', theme: 'secondary' }
+  if (canUseMaster(musicInfo)) return { label: 'Master', theme: 'primary' }
+  if (qualitys.flac24bit) return { label: '24bit', theme: 'primary' }
+  if (qualitys.ape || qualitys.flac || qualitys.wav) return { label: 'SQ', theme: 'primary' }
+  if (qualitys['320k']) return { label: 'HQ', theme: 'secondary' }
   if (!detail) return null
-  if (qualitys['192k']) return { labelKey: 'tag__192k', theme: 'secondary' }
-  return { labelKey: 'tag__128k', theme: 'secondary' }
+  if (qualitys['192k']) return { label: '192K', theme: 'secondary' }
+  return { label: '128K', theme: 'secondary' }
 }
 
 /**
- * 会话级的「该源取不到该音质」记忆。
- * 只记 master / atmos 这种试探性的虚音质，避免每首歌都白试一轮。
+ * 会话级的「该源取不到该音质」失败计数。
+ * 只记 master / atmos 这种试探性的虚音质：脚本压根不支持时别每首歌都白试一轮（尤其脚本不
+ * 认识这个 type 时会把 20 秒超时拖满），但也不能因为某首歌没有母带版就把整个源的 Master 关掉
+ * —— 有没有母带版是逐首的，所以连续失败够次数才放弃，取成功一次就清零。
  */
-const unsupportedQualitys = new Map<LX.Source, Set<LX.Quality>>()
+const MAX_QUALITY_FAIL = 3
+const qualityFailCounts = new Map<string, number>()
 
-export const markQualityUnsupported = (source: LX.Source, quality: LX.Quality) => {
-  let list = unsupportedQualitys.get(source)
-  if (!list) {
-    list = new Set()
-    unsupportedQualitys.set(source, list)
-  }
-  list.add(quality)
+const getQualityKey = (source: LX.Source, quality: LX.Quality) => `${source}_${quality}`
+
+export const markQualityFail = (source: LX.Source, quality: LX.Quality) => {
+  const key = getQualityKey(source, quality)
+  qualityFailCounts.set(key, (qualityFailCounts.get(key) ?? 0) + 1)
 }
 
-export const isQualityUnsupported = (source: LX.Source, quality: LX.Quality): boolean =>
-  unsupportedQualitys.get(source)?.has(quality) ?? false
+export const markQualitySuccess = (source: LX.Source, quality: LX.Quality) => {
+  qualityFailCounts.delete(getQualityKey(source, quality))
+}
 
-export const clearQualityUnsupported = () => {
-  unsupportedQualitys.clear()
+/** 连续失败达到上限就当这个源取不到，跳过不再试 */
+export const isQualitySupported = (source: LX.Source, quality: LX.Quality): boolean =>
+  (qualityFailCounts.get(getQualityKey(source, quality)) ?? 0) < MAX_QUALITY_FAIL
+
+export const resetQualityFailures = () => {
+  qualityFailCounts.clear()
 }

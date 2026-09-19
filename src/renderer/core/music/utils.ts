@@ -1,4 +1,4 @@
-import { getPlayQualityList, isMasterQuality, isQualityUnsupported, markQualityUnsupported } from './quality'
+import { getPlayQualityList, isMasterQuality, isQualitySupported, markQualityFail, markQualitySuccess } from './quality'
 import { assertApiSupport } from '@renderer/store/utils'
 import musicSdk from '@renderer/utils/musicSdk'
 import {
@@ -243,8 +243,11 @@ const getMusicUrlByQualitys = async({ musicInfo, qualitys, isRefresh }: {
     // 先查缓存，命中就直接用，不再往下降级
     const cachedUrl = await getStoreMusicUrl(musicInfo, itemQuality)
     if (cachedUrl && !isRefresh) return { url: cachedUrl, quality: itemQuality, isFromCache: true }
-    // 本会话已确认这个源取不到这个音质，跳过（判断放在缓存探测之后，免得缓存的 Master 取不到）
-    if (isQualityUnsupported(musicInfo.source, itemQuality)) continue
+    // 本会话已连续多次确认这个源取不到这个音质，跳过（判断放在缓存探测之后，免得缓存的 Master 取不到）
+    if (!isQualitySupported(musicInfo.source, itemQuality)) continue
+
+    // 日志里能直接看到这首歌实际去要了什么音质，方便确认 Master 有没有真的去要
+    console.log('try quality: ', musicInfo.source, itemQuality, musicInfo.name)
 
     let reqPromise
     try {
@@ -260,13 +263,15 @@ const getMusicUrlByQualitys = async({ musicInfo, qualitys, isRefresh }: {
       const { url, type } = await reqPromise
       // 音源脚本遇到不认识的 type 可能返回空 url，当成失败继续降级，免得播放器拿到空链接报个看不懂的错
       if (!url) throw new Error(requestMsg.fail)
+      // 取到了就说明这个源支持这个虚音质，把之前的失败计数清了（之前的失败只是那几首歌没有母带版）
+      if (isMasterQuality(itemQuality)) markQualitySuccess(musicInfo.source, itemQuality)
       return { url, quality: type ?? itemQuality, isFromCache: false }
     } catch (err: any) {
       if (isAbortError(err)) throw err
       console.log(err)
       lastErr = err
-      // Master/Atmos 是客户端额外加的虚音质，失败一次就记住这个源取不到，免得每首歌都白试一轮
-      if (isMasterQuality(itemQuality)) markQualityUnsupported(musicInfo.source, itemQuality)
+      // Master/Atmos 是客户端额外加的虚音质，连续失败够次数就这个源别再试了，免得每首歌都白试一轮
+      if (isMasterQuality(itemQuality)) markQualityFail(musicInfo.source, itemQuality)
     }
   }
   throw lastErr ?? new Error(window.i18n.t('toggle_source_failed'))
