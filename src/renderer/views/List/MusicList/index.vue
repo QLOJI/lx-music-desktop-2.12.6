@@ -43,7 +43,7 @@
           </div>
           <div class="list-item-cell auto name" :aria-label="item.name">
             <span class="select name">{{ item.name }}</span>
-            <span v-if="isShowSource" class="no-select label-source">{{ item.source }}</span>
+            <material-quality-badge :music-info="item" merged :show-source="isShowSource" detail />
           </div>
           <div class="list-item-cell" style="flex: 0 0 22%;"><span class="select" :aria-label="item.singer">{{ item.singer }}</span></div>
           <div class="list-item-cell" style="flex: 0 0 22%;"><span class="select" :aria-label="item.meta.albumName">{{ item.meta.albumName }}</span></div>
@@ -75,7 +75,7 @@
           </div>
           <div class="list-item-cell auto name">
             <span class="select name" :aria-label="item.name">{{ item.name }}</span>
-            <span v-if="isShowSource" class="no-select label-source">{{ item.source }}</span>
+            <material-quality-badge :music-info="item" merged :show-source="isShowSource" detail />
           </div>
           <div class="list-item-cell" style="flex: 0 0 25%;"><span class="select" :aria-label="item.singer">{{ item.singer }}</span></div>
           <div class="list-item-cell" style="flex: 0 0 28%;"><span class="select" :aria-label="item.meta.albumName">{{ item.meta.albumName }}</span></div>
@@ -373,16 +373,6 @@ export default {
   :global(.list-item) {
     &.active {
       color: var(--color-button-font);
-    }
-  }
-  :global {
-    .label-source {
-      color: var(--color-primary);
-      padding: 5px;
-      font-size: .8em;
-      line-height: 1.2;
-      opacity: .75;
-      display: inline-block;
     }
   }
 }
