@@ -3,14 +3,14 @@ import { appSetting, setApiSource } from '@renderer/store/setting'
 import { setUserApi as setUserApiAction } from '@renderer/utils/ipc'
 import musicSdk from '@renderer/utils/musicSdk'
 import apiSourceInfo from '@renderer/utils/musicSdk/api-source-info'
-import { clearQualityUnsupported } from '@renderer/core/music/quality'
+import { resetQualityFailures } from '@renderer/core/music/quality'
 
 let prevId = ''
 export const setUserApi = async(apiId: string) => {
   if (prevId == apiId) return
   prevId = apiId
   // 换了音源脚本，之前记下的「这个源取不到 Master」不再可信
-  clearQualityUnsupported()
+  resetQualityFailures()
   if (window.lx.apiInitPromise[1]) {
     window.lx.apiInitPromise[0] = new Promise<boolean>(resolve => {
       window.lx.apiInitPromise[1] = false
