@@ -71,7 +71,13 @@ export const getMusicType = (musicInfo: LX.Music.MusicInfoOnline, type: LX.Quali
   let list = qualityList[musicInfo.source]
   if (!list) return '128k'
   if (!list.includes(type)) type = list[list.length - 1]
-  const rangeType = QUALITYS.slice(QUALITYS.indexOf(type))
+  // QUALITYS 是 `as const` 的只读元组，元素类型只有那 7 个真实音质、不含 master / atmos，
+  // 直接 QUALITYS.indexOf(LX.Quality) 类型检查过不去（TS2345），换个 LX.Quality 的视角来看
+  const realQualitys: readonly LX.Quality[] = QUALITYS
+  const typeIndex = realQualitys.indexOf(type)
+  // 上面已经把虚音质挡掉了，正常不会 -1；真 -1 也绝不能 slice(-1) —— 那会静默只剩 128k 一档，
+  // 从第一档开始筛，让 hasQuality 自己挑最好的
+  const rangeType = realQualitys.slice(typeIndex < 0 ? 0 : typeIndex)
   for (const itemType of rangeType) {
     // 用 hasQuality 跳过各源解析器造出来的假条目（size 是 '0 B' 那种），
     // 免得挑中一个取不到的档，下载直接失败
