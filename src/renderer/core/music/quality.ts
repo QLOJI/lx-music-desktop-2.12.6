@@ -1,5 +1,3 @@
-import { qualityList } from '@renderer/store'
-
 /**
  * 音质从高到低的降级顺序。
  * master / atmos 是客户端虚拟出来的音质，不在 meta._qualitys 里，只用于向音源索取。
@@ -47,10 +45,16 @@ export const hasQuality = (
 }
 
 /**
- * 是否是「TX/KG/WY 的 SQ 及以上」的歌曲，这类歌曲小标显示 Master，播放时优先按 Master 索取
+ * 这首歌能不能按 Master / Atmos 索取。
+ * 小标和播放必须共用这一个判据 —— 小标写了 Master 播放就得真去要 Master，
+ * 不然就是"标着一个音质、播着另一个音质"。
+ * 两种情况算能：
+ * 1. 音源脚本在歌曲里自带了 master / atmos（lx 音源脚本规范里这两个是正式音质，任何源都认）
+ * 2. TX / KG / WY 的 SQ 及以上（脚本没声明也先试一把）
  */
 export const canUseMaster = (musicInfo: LX.Music.MusicInfoOnline): boolean => {
   const qualitys = musicInfo.meta._qualitys
+  if (hasQuality(qualitys, 'master') || hasQuality(qualitys, 'atmos')) return true
   return qualitys != null && MASTER_SOURCES.includes(musicInfo.source) && SQ_QUALITYS.some(q => hasQuality(qualitys, q))
 }
 
@@ -65,15 +69,19 @@ export const getQualityLadder = (quality: LX.Quality): LX.Quality[] => {
 
 /**
  * 歌曲实际可用的音质降级列表（不含缓存判断，缓存由取 URL 时逐档探测）
+ *
+ * 过筛只看歌曲自己的 meta._qualitys —— 小标就是这么算的，播放就必须照着小标来。
+ * 别再拿 qualityList.value[源]（音源脚本声明的音质列表）当门槛：脚本声明的和歌曲里实际带的
+ * 经常对不上，脚本没声明 flac24bit 而歌里有，就会出现"标着 24bit 播着 flac"。
+ * 万一真取不到，下面的降级遍历自然会退到下一档。
  */
 export const getPlayQualityList = (quality: LX.Quality, musicInfo: LX.Music.MusicInfoOnline): LX.Quality[] => {
   const isMaster = canUseMaster(musicInfo)
-  const list = qualityList.value[musicInfo.source]
   const qualitys = getQualityLadder(quality).filter(q => {
     if (isMasterQuality(q)) return isMaster
-    return hasQuality(musicInfo.meta._qualitys, q) && list?.includes(q)
+    return hasQuality(musicInfo.meta._qualitys, q)
   })
-  // 128k 是万能兜底，无论音源脚本怎么声明都要留着
+  // 128k 是万能兜底，无论歌曲元数据里有没有它都要留着
   if (!qualitys.includes('128k')) qualitys.push('128k')
   return qualitys
 }
@@ -109,28 +117,41 @@ export const getQualityBadge = (musicInfo: LX.Music.MusicInfo, detail = false): 
 }
 
 /**
- * 会话级的「该源取不到该音质」失败计数。
- * 只记 master / atmos 这种试探性的虚音质：脚本压根不支持时别每首歌都白试一轮（尤其脚本不
- * 认识这个 type 时会把 20 秒超时拖满），但也不能因为某首歌没有母带版就把整个源的 Master 关掉
- * —— 有没有母带版是逐首的，所以连续失败够次数才放弃，取成功一次就清零。
+ * 会话级的「这个源压根取不到这个音质」记忆。
+ * 只挡 master / atmos 这种客户端自己加的虚音质：脚本不认识这个 type 时可能一声不吭，
+ * 要等满 20 秒超时（'Cancel request'），一首歌白等还不说，还可能整首播不出来。
+ * 撞够次数就先跳过这个源；但只要取成功一次立刻清零，撞出来的记录超过一段时间也自动失效，
+ * 免得一次网络抽风就把 Master 永久关掉 —— 小标写着 Master 就必须一直有真去要 Master 的机会。
+ * 真实音质失败不记：那多半是这一首（某个专辑）转码的问题，下一首还得试。
  */
-const MAX_QUALITY_FAIL = 3
-const qualityFailCounts = new Map<string, number>()
+const MAX_QUALITY_FAIL = 2
+const QUALITY_FAIL_EXPIRE = 5 * 60_000
+const qualityFailCounts = new Map<string, { count: number, time: number }>()
 
-const getQualityKey = (source: LX.Source, quality: LX.Quality) => `${source}_${quality}`
+// master / atmos 共用一个桶：脚本连一个都不认的话，基本也不可能认另一个
+const getQualityKey = (source: LX.Source, quality: LX.Quality) =>
+  `${source}_${isMasterQuality(quality) ? 'master' : quality}`
 
 export const markQualityFail = (source: LX.Source, quality: LX.Quality) => {
   const key = getQualityKey(source, quality)
-  qualityFailCounts.set(key, (qualityFailCounts.get(key) ?? 0) + 1)
+  qualityFailCounts.set(key, { count: (qualityFailCounts.get(key)?.count ?? 0) + 1, time: Date.now() })
 }
 
 export const markQualitySuccess = (source: LX.Source, quality: LX.Quality) => {
   qualityFailCounts.delete(getQualityKey(source, quality))
 }
 
-/** 连续失败达到上限就当这个源取不到，跳过不再试 */
-export const isQualitySupported = (source: LX.Source, quality: LX.Quality): boolean =>
-  (qualityFailCounts.get(getQualityKey(source, quality)) ?? 0) < MAX_QUALITY_FAIL
+/** 连续失败达到上限（且没过期）就当这个源取不到，跳过不再试 */
+export const isQualitySupported = (source: LX.Source, quality: LX.Quality): boolean => {
+  const key = getQualityKey(source, quality)
+  const item = qualityFailCounts.get(key)
+  if (item == null) return true
+  if (Date.now() - item.time > QUALITY_FAIL_EXPIRE) {
+    qualityFailCounts.delete(key)
+    return true
+  }
+  return item.count < MAX_QUALITY_FAIL
+}
 
 export const resetQualityFailures = () => {
   qualityFailCounts.clear()

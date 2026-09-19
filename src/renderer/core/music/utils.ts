@@ -218,11 +218,15 @@ export const getOnlineOtherSourcePicByLocal = async(musicInfo: LX.Music.MusicInf
   })
 }
 
+// 请求发出去 20 秒没回应时主进程抛的取消（见 main/modules/userApi/rendererEvent 的 request 超时）。
+// 注意跟 requestMsg.cancelRequest（'取消http请求'，LX 自己撤的请求）不是一回事。
+const isRequestTimeout = (err: any): boolean => err?.message == 'Cancel request'
+
 // 不该继续降级的错误：服务器繁忙、请求被取消、当前源根本没有取 URL 的接口
 const isAbortError = (err: any): boolean => (
   err?.message == requestMsg.tooManyRequests ||
   err?.message == requestMsg.cancelRequest ||
-  err?.message == 'Cancel request' ||
+  isRequestTimeout(err) ||
   err?.message == 'Api is not found'
 )
 
@@ -243,7 +247,7 @@ const getMusicUrlByQualitys = async({ musicInfo, qualitys, isRefresh }: {
     // 先查缓存，命中就直接用，不再往下降级
     const cachedUrl = await getStoreMusicUrl(musicInfo, itemQuality)
     if (cachedUrl && !isRefresh) return { url: cachedUrl, quality: itemQuality, isFromCache: true }
-    // 本会话已连续多次确认这个源取不到这个音质，跳过（判断放在缓存探测之后，免得缓存的 Master 取不到）
+    // 这个源试这个虚音质连续超时过几次，先跳过一阵子（判断放在缓存探测之后，免得缓存的 Master 取不到）
     if (!isQualitySupported(musicInfo.source, itemQuality)) continue
 
     // 日志里能直接看到这首歌实际去要了什么音质，方便确认 Master 有没有真的去要
@@ -263,15 +267,29 @@ const getMusicUrlByQualitys = async({ musicInfo, qualitys, isRefresh }: {
       const { url, type } = await reqPromise
       // 音源脚本遇到不认识的 type 可能返回空 url，当成失败继续降级，免得播放器拿到空链接报个看不懂的错
       if (!url) throw new Error(requestMsg.fail)
-      // 取到了就说明这个源支持这个虚音质，把之前的失败计数清了（之前的失败只是那几首歌没有母带版）
+      // 取到了就说明脚本认这个 type，之前记的超时账作废
       if (isMasterQuality(itemQuality)) markQualitySuccess(musicInfo.source, itemQuality)
       return { url, quality: type ?? itemQuality, isFromCache: false }
     } catch (err: any) {
+      // 虚音质（master/atmos）是客户端额外加的一档，脚本不认这个 type 时可能一直不回信，
+      // 要等满 20 秒超时。这种情况记下「这个源不认虚音质」，然后继续往下降级 ——
+      // 一首歌不能因为多试了一档就整首播不出来。
+      if (isMasterQuality(itemQuality)) {
+        if (isRequestTimeout(err)) {
+          console.log('quality timeout, source does not support it: ', musicInfo.source, itemQuality)
+          markQualityFail(musicInfo.source, itemQuality)
+          lastErr = err
+          continue
+        }
+        // 脚本认得这个 type、只是这首歌没有母带版（秒回错误或空链接）：别的歌还得试，不记
+        if (isAbortError(err)) throw err
+        console.log(err)
+        lastErr = err
+        continue
+      }
       if (isAbortError(err)) throw err
       console.log(err)
       lastErr = err
-      // Master/Atmos 是客户端额外加的虚音质，连续失败够次数就这个源别再试了，免得每首歌都白试一轮
-      if (isMasterQuality(itemQuality)) markQualityFail(musicInfo.source, itemQuality)
     }
   }
   throw lastErr ?? new Error(window.i18n.t('toggle_source_failed'))
