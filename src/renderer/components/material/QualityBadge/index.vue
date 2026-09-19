@@ -5,7 +5,6 @@ span(v-else-if="merged && showSource" class="no-select" :class="$style.source") 
 
 <script>
 import { computed } from '@common/utils/vueTools'
-import { useI18n } from '@renderer/plugins/i18n'
 import { getQualityBadge } from '@renderer/core/music/quality'
 
 export default {
@@ -33,13 +32,11 @@ export default {
     },
   },
   setup(props) {
-    const t = useI18n()
-
     const badge = computed(() => getQualityBadge(props.musicInfo, props.detail))
     const badgeClass = computed(() => (badge.value ? `badge-theme-${badge.value.theme}` : ''))
     const text = computed(() => {
       if (!badge.value) return ''
-      const label = t(badge.value.labelKey)
+      const label = badge.value.label
       return props.merged && props.showSource ? `${props.musicInfo.source} ${label}` : label
     })
 
