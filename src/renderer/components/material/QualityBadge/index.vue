@@ -38,9 +38,13 @@ export default {
     const badgeClass = computed(() => (badge.value ? `badge-theme-${badge.value.theme}` : ''))
     // 合并显示：`kg Master`
     const isMerged = computed(() => props.merged && props.showSource)
-    // 全局 .badge 的左右内边距是 .4em，在列表行里左边会显得空太多（还要再叠上 .list-item-cell .badge
-    // 的 margin-left 3px），合并时左边只留 1px，加起来差不多正好一个空格的宽度，跟中间那 3px 也对得上
-    const mergedStyle = computed(() => (isMerged.value ? { paddingLeft: '1px' } : null))
+    // 合并标签（`kg Master`）的行内样式，一律写在行内而不是只靠 class：
+    // 全局 .badge 是 display:inline-block，跟组件样式谁后加载谁赢，靠 class 说不准 ——
+    // 行内样式优先级最高，`kg` 和 `Master` 之间就永远只隔着一个 gap（≈ 一个空格），
+    // 不会因为样式表顺序变回 inline 布局、也不会有多出来的空白节点把间隔撑大
+    const mergedStyle = computed(() => (isMerged.value
+      ? { display: 'inline-flex', alignItems: 'center', gap: '0.3em', paddingLeft: '1px' }
+      : null))
 
     return {
       badge,
@@ -64,11 +68,12 @@ export default {
 }
 
 // 合并标签（`kg Master`）用 inline-flex 排：它不会渲染标签之间的空白文本节点，
-// 源名和音质之间就只由 gap 决定，不受字体里空格宽窄的影响
+// 源名和音质之间就只由 gap 决定，不受字体里空格宽窄的影响。
+// gap 跟上面 mergedStyle 里的行内样式保持一致（行内那份优先级更高，这份是兜底）
 .merged {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: .3em;
 }
 
 // 合并标签里的源名，比音质标签淡一点
