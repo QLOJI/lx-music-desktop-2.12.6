@@ -12,6 +12,7 @@
 <script>
 import { qualityList } from '@renderer/store'
 import { createDownloadTasks } from '@renderer/store/download/action'
+import { canUseMaster, isMasterQuality } from '@renderer/core/music/quality'
 
 export default {
   props: {
@@ -50,7 +51,13 @@ export default {
       return this.qualityList[this.musicInfo.source] || []
     },
     qualitys() {
-      return this.info.meta?.qualitys?.filter(quality => this.checkSource(quality.type)) || []
+      // 脚本给的老格式音质列表（meta.qualitys）里可能自带 atmos / master 条目，
+      // 虚音质统一由下面按同一套判据补，先剔掉免得重复列出来
+      const list = (this.info.meta?.qualitys || []).filter(quality => !isMasterQuality(quality.type) && this.checkSource(quality.type))
+      // Master / Atmos 是客户端虚拟音质：歌曲能按 Master 要的时候补在列表末尾，Master 在 Atmos 上面。
+      // 这两个不带上 size —— 虚音质没有真实文件大小，显示大小是骗人
+      if (this.musicInfo == null || !canUseMaster(this.musicInfo)) return list
+      return [...list, { type: 'master' }, { type: 'atmos' }]
     },
   },
   methods: {
@@ -63,6 +70,11 @@ export default {
     },
     getTypeName(quality) {
       switch (quality) {
+        // 虚音质写死标签不走 i18n：语言包漏同步时 t() 会把键名原样吐出来
+        case 'master':
+          return 'Master'
+        case 'atmos':
+          return 'Atmos'
         case 'flac24bit':
           return this.$t('download__lossless') + ' FLAC Hires'
         case 'flac':
