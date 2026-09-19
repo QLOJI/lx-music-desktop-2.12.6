@@ -23,11 +23,35 @@ export const SQ_QUALITYS: LX.Quality[] = ['master', 'atmos', 'flac24bit', 'flac'
 export const isMasterQuality = (quality: LX.Quality): boolean => quality == 'master' || quality == 'atmos'
 
 /**
+ * meta._qualitys 里的条目不一定真有这个音质。
+ * 各源解析器用的是 `size !== 0` / `size !== '0'` 这类判断（tx/musicSearch.js、kg/musicInfo.js、
+ * kg/leaderboard.js…），接口没返回这个字段时拿到的是 undefined，`undefined !== 0` 和
+ * `undefined !== '0'` 都成立，于是白白多出一条音质条目 —— sizeFormate 会把它写成 '0 B'，
+ * 接口给字符串 '0' 时更会写成 'NaN undefined'。这种假音质不能算 SQ，否则一首只有 HQ 甚至 128K
+ * 的歌小标会显示成 Master，播放时还会真去要 Master。
+ *
+ * 判据只否掉铁证是假的，其它一律当真，免得误伤真音质（kw 系列的真条目 size 就是 null，
+ * 还有直接从接口拿的 '12.34MB' 这种字符串）。
+ */
+export const hasQuality = (
+  qualitys: Partial<Record<LX.Quality, { size?: string | null, hash?: string }>> | undefined,
+  quality: LX.Quality,
+): boolean => {
+  const info = qualitys?.[quality]
+  if (info == null) return false
+  // kg 系的条目带 hash，取播放地址靠的就是它，有 hash 字段就以它为准
+  if (typeof info.hash == 'string') return info.hash.length > 0
+  const size = info.size
+  if (typeof size != 'string') return true
+  return size != '0 B' && !size.startsWith('NaN')
+}
+
+/**
  * 是否是「TX/KG/WY 的 SQ 及以上」的歌曲，这类歌曲小标显示 Master，播放时优先按 Master 索取
  */
 export const canUseMaster = (musicInfo: LX.Music.MusicInfoOnline): boolean => {
   const qualitys = musicInfo.meta._qualitys
-  return qualitys != null && MASTER_SOURCES.includes(musicInfo.source) && SQ_QUALITYS.some(q => qualitys[q] != null)
+  return qualitys != null && MASTER_SOURCES.includes(musicInfo.source) && SQ_QUALITYS.some(q => hasQuality(qualitys, q))
 }
 
 /**
@@ -47,7 +71,7 @@ export const getPlayQualityList = (quality: LX.Quality, musicInfo: LX.Music.Musi
   const list = qualityList.value[musicInfo.source]
   const qualitys = getQualityLadder(quality).filter(q => {
     if (isMasterQuality(q)) return isMaster
-    return musicInfo.meta._qualitys[q] != null && list?.includes(q)
+    return hasQuality(musicInfo.meta._qualitys, q) && list?.includes(q)
   })
   // 128k 是万能兜底，无论音源脚本怎么声明都要留着
   if (!qualitys.includes('128k')) qualitys.push('128k')
@@ -69,18 +93,18 @@ export const getQualityBadge = (musicInfo: LX.Music.MusicInfo, detail = false): 
   // 本地文件没有音质概念，不显示音质小标（只显示源名）
   if (musicInfo.source == 'local') return null
   const qualitys = musicInfo.meta._qualitys
-  if (qualitys == null) return detail ? { label: '128K', theme: 'secondary' } : null
 
   // 音源脚本真的声明了 master / atmos 时以实际音质为准
-  if (qualitys.master) return { label: 'Master', theme: 'primary' }
-  if (qualitys.atmos) return { label: 'Atmos', theme: 'primary' }
+  if (hasQuality(qualitys, 'master')) return { label: 'Master', theme: 'primary' }
+  if (hasQuality(qualitys, 'atmos')) return { label: 'Atmos', theme: 'primary' }
   // TX / KG / WY 的 SQ 及以上统一显示 Master
   if (canUseMaster(musicInfo)) return { label: 'Master', theme: 'primary' }
-  if (qualitys.flac24bit) return { label: '24bit', theme: 'primary' }
-  if (qualitys.ape || qualitys.flac || qualitys.wav) return { label: 'SQ', theme: 'primary' }
-  if (qualitys['320k']) return { label: 'HQ', theme: 'secondary' }
+  if (hasQuality(qualitys, 'flac24bit')) return { label: '24bit', theme: 'primary' }
+  if (hasQuality(qualitys, 'ape') || hasQuality(qualitys, 'flac') || hasQuality(qualitys, 'wav')) return { label: 'SQ', theme: 'primary' }
+  if (hasQuality(qualitys, '320k')) return { label: 'HQ', theme: 'secondary' }
   if (!detail) return null
-  if (qualitys['192k']) return { label: '192K', theme: 'secondary' }
+  if (hasQuality(qualitys, '192k')) return { label: '192K', theme: 'secondary' }
+  // 什么音质都没有的，补齐 128K
   return { label: '128K', theme: 'secondary' }
 }
 
