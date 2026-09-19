@@ -1,7 +1,7 @@
 <template lang="pug">
-span(v-if="badge" class="no-select badge" :class="[badgeClass, { [$style.merged]: isMerged }]" :style="mergedStyle")
+span(v-if="badge" class="no-select badge" :class="badgeClass" :style="mergedStyle")
   span(v-if="isMerged" :class="$style.sourceInline") {{ musicInfo.source }}
-  span {{ badge.label }}
+  span(:class="{ [$style.mergedLabel]: isMerged }") {{ badge.label }}
 span(v-else-if="isMerged" class="no-select" :class="$style.source") {{ musicInfo.source }}
 </template>
 
@@ -38,13 +38,9 @@ export default {
     const badgeClass = computed(() => (badge.value ? `badge-theme-${badge.value.theme}` : ''))
     // 合并显示：`kg Master`
     const isMerged = computed(() => props.merged && props.showSource)
-    // 合并标签（`kg Master`）的行内样式，一律写在行内而不是只靠 class：
-    // 全局 .badge 是 display:inline-block，跟组件样式谁后加载谁赢，靠 class 说不准 ——
-    // 行内样式优先级最高，`kg` 和 `Master` 之间就永远只隔着一个 gap（≈ 一个空格），
-    // 不会因为样式表顺序变回 inline 布局、也不会有多出来的空白节点把间隔撑大
-    const mergedStyle = computed(() => (isMerged.value
-      ? { display: 'inline-flex', alignItems: 'center', gap: '0.3em', paddingLeft: '1px' }
-      : null))
+    // 全局 .badge 的左右内边距是 .4em，列表行里左边还要再叠上 .list-item-cell .badge 的 margin-left: 3px，
+    // 合并时左边只留 1px，加起来差不多正好一个空格的宽度（`歌名 kg Master` 两侧间隔一致），右边照旧
+    const mergedStyle = computed(() => (isMerged.value ? { paddingLeft: '1px' } : null))
 
     return {
       badge,
@@ -67,13 +63,13 @@ export default {
   display: inline-block;
 }
 
-// 合并标签（`kg Master`）用 inline-flex 排：它不会渲染标签之间的空白文本节点，
-// 源名和音质之间就只由 gap 决定，不受字体里空格宽窄的影响。
-// gap 跟上面 mergedStyle 里的行内样式保持一致（行内那份优先级更高，这份是兜底）
-.merged {
-  display: inline-flex;
-  align-items: center;
-  gap: .3em;
+// 合并标签里 `kg` 和 `Master` 之间的间隔。
+// 必须用 margin 撑：pug 编译相邻 span 不会插换行空白，两边本来就是紧贴的，
+// 想靠容器的 `gap` 就得先让 display 变成 flex，而全局 .badge 是 inline-block，
+// 同级别单类名谁后加载谁赢 —— 一输就是 `kgMaster` 粘一起。
+// margin 在 inline / flex 两种布局下都算数，一个空格的宽度，跟字体大小走
+.mergedLabel {
+  margin-left: .3em;
 }
 
 // 合并标签里的源名，比音质标签淡一点
