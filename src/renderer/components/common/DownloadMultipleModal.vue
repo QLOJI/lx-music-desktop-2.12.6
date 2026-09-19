@@ -6,8 +6,9 @@
       <base-btn :class="$style.btn" @click="handleClick('320k')">{{ $t('download__high_quality') }} - 320K</base-btn>
       <base-btn :class="$style.btn" @click="handleClick('flac')">{{ $t('download__lossless') }} - FLAC</base-btn>
       <base-btn :class="$style.btn" @click="handleClick('flac24bit')">{{ $t('download__lossless') }} - FLAC Hires</base-btn>
-      <base-btn :class="$style.btn" @click="handleClick('master')">Master</base-btn>
+      <!-- 顺序跟设置项、单曲下载弹窗一致：128K → 320K → FLAC → FLAC Hires → Atmos → Master -->
       <base-btn :class="$style.btn" @click="handleClick('atmos')">Atmos</base-btn>
+      <base-btn :class="$style.btn" @click="handleClick('master')">Master</base-btn>
     </main>
   </material-modal>
 </template>

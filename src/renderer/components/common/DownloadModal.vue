@@ -54,10 +54,12 @@ export default {
       // 脚本给的老格式音质列表（meta.qualitys）里可能自带 atmos / master 条目，
       // 虚音质统一由下面按同一套判据补，先剔掉免得重复列出来
       const list = (this.info.meta?.qualitys || []).filter(quality => !isMasterQuality(quality.type) && this.checkSource(quality.type))
-      // Master / Atmos 是客户端虚拟音质：歌曲能按 Master 要的时候补在列表末尾，Master 在 Atmos 上面。
+      // Master / Atmos 是客户端虚拟音质：歌曲能按 Master 要的时候补在列表末尾。
+      // 顺序固定是 Atmos 在前、Master 在后，跟设置项「优先播放的音质」还有批量下载弹窗一致：
+      // 128K → 320K → FLAC → FLAC Hires → Atmos → Master
       // 这两个不带上 size —— 虚音质没有真实文件大小，显示大小是骗人
       if (this.musicInfo == null || !canUseMaster(this.musicInfo)) return list
-      return [...list, { type: 'master' }, { type: 'atmos' }]
+      return [...list, { type: 'atmos' }, { type: 'master' }]
     },
   },
   methods: {
