@@ -80,6 +80,33 @@ jobs:
           cd build
           Get-FileHash *.exe,*.7z -Algorithm MD5 | Format-List
 
+      - name: Upload Windows x64 Setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-desktop-x64-Setup
+          path: build/*x64*Setup*.exe
+          if-no-files-found: warn
+
+      - name: Upload Windows arm64 Setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-desktop-arm64-Setup
+          path: build/*arm64*Setup*.exe
+          if-no-files-found: warn
+
+      - name: Upload Windows x64 green
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-desktop-win_x64-green
+          path: build/*x64*.7z
+          if-no-files-found: warn
+
+      - name: Upload Windows arm64 green
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-desktop-win_arm64-green
+          path: build/*arm64*.7z
+          if-no-files-found: warn
 
   Windows_7:
     name: Windows_7
@@ -129,6 +156,27 @@ jobs:
           cd build
           Get-FileHash *.exe,*.7z -Algorithm MD5 | Format-List
 
+      - name: Upload win7 x64 Setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-desktop-win7_x64-Setup
+          path: build/*win7*x64*Setup*.exe
+          if-no-files-found: warn
+
+      - name: Upload win7 x64 green
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-desktop-win7_x64-green
+          path: build/*win7*x64*.7z
+          if-no-files-found: warn
+
+      - name: Upload win7 x86 green
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-desktop-win7_x86-green
+          path: build/*win7*x86*.7z
+          if-no-files-found: warn
+
   Mac:
     name: Mac
     runs-on: macos-latest
@@ -146,6 +194,7 @@ jobs:
 
       - name: Show Env
         run: echo "${{ env.NPM_CACHE }}"
+
       - name: Setup Node Env
         env:
           NPM_CACHE: ${{ env.NPM_CACHE }}
@@ -169,6 +218,20 @@ jobs:
           cd build
           md5 *.dmg
 
+      - name: Upload mac dmg x64
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-desktop-mac-dmg
+          path: build/*x64*.dmg
+          if-no-files-found: warn
+
+      - name: Upload mac dmg arm64
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-desktop-mac-dmg-arm64
+          path: build/*arm64*.dmg
+          if-no-files-found: warn
+
   Linux:
     name: Linux
     runs-on: ubuntu-latest
@@ -186,6 +249,7 @@ jobs:
 
       - name: Show Env
         run: echo "${{ env.NPM_CACHE }}"
+
       - name: Setup Node Env
         env:
           NPM_CACHE: ${{ env.NPM_CACHE }}
@@ -212,3 +276,45 @@ jobs:
         run: |
           cd build
           md5sum *.deb *.rpm *.pacman *.AppImage
+
+      - name: Upload deb amd64
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-desktop-deb-amd64
+          path: build/*amd64*.deb
+          if-no-files-found: warn
+
+      - name: Upload deb arm64
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-desktop-deb-arm64
+          path: build/*arm64*.deb
+          if-no-files-found: warn
+
+      - name: Upload deb armv7l
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-desktop-deb-armv7l
+          path: build/*armv7l*.deb
+          if-no-files-found: warn
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-desktop-x64-appImage
+          path: build/*.AppImage
+          if-no-files-found: warn
+
+      - name: Upload rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-desktop-x64-rpm
+          path: build/*.rpm
+          if-no-files-found: warn
+
+      - name: Upload pacman
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-desktop-x64-pacman
+          path: build/*.pacman
+          if-no-files-found: warn
