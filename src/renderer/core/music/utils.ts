@@ -1,4 +1,4 @@
-import { qualityList } from '@renderer/store'
+import { getPlayQualityList, isMasterQuality, isQualityUnsupported, markQualityUnsupported } from './quality'
 import { assertApiSupport } from '@renderer/store/utils'
 import musicSdk from '@renderer/utils/musicSdk'
 import {
@@ -218,20 +218,58 @@ export const getOnlineOtherSourcePicByLocal = async(musicInfo: LX.Music.MusicInf
   })
 }
 
-export const TRY_QUALITYS_LIST = ['flac24bit', 'flac', '320k'] as const
-type TryQualityType = typeof TRY_QUALITYS_LIST[number]
-export const getPlayQuality = (highQuality: LX.Quality, musicInfo: LX.Music.MusicInfoOnline): LX.Quality => {
-  let type: LX.Quality = '128k'
-  if (TRY_QUALITYS_LIST.includes(highQuality as TryQualityType)) {
-    let list = qualityList.value[musicInfo.source]
+// 不该继续降级的错误：服务器繁忙、请求被取消、当前源根本没有取 URL 的接口
+const isAbortError = (err: any): boolean => (
+  err?.message == requestMsg.tooManyRequests ||
+  err?.message == requestMsg.cancelRequest ||
+  err?.message == 'Cancel request' ||
+  err?.message == 'Api is not found'
+)
 
-    let t = TRY_QUALITYS_LIST
-      .slice(TRY_QUALITYS_LIST.indexOf(highQuality as TryQualityType))
-      .find(q => musicInfo.meta._qualitys[q] && list?.includes(q))
+/**
+ * 按音质列表从高到低依次尝试，取不到就降级到下一档
+ */
+const getMusicUrlByQualitys = async({ musicInfo, qualitys, isRefresh }: {
+  musicInfo: LX.Music.MusicInfoOnline
+  qualitys: LX.Quality[]
+  isRefresh: boolean
+}): Promise<{
+  url: string
+  quality: LX.Quality
+  isFromCache: boolean
+}> => {
+  let lastErr: any
+  for (const itemQuality of qualitys) {
+    // 先查缓存，命中就直接用，不再往下降级
+    const cachedUrl = await getStoreMusicUrl(musicInfo, itemQuality)
+    if (cachedUrl && !isRefresh) return { url: cachedUrl, quality: itemQuality, isFromCache: true }
+    // 本会话已确认这个源取不到这个音质，跳过（判断放在缓存探测之后，免得缓存的 Master 取不到）
+    if (isQualityUnsupported(musicInfo.source, itemQuality)) continue
 
-    if (t) type = t
+    let reqPromise
+    try {
+      reqPromise = musicSdk[musicInfo.source].getMusicUrl(toOldMusicInfo(musicInfo), itemQuality).promise
+    } catch (err: any) {
+      if (isAbortError(err)) throw err
+      console.log(err)
+      lastErr = err
+      continue
+    }
+
+    try {
+      const { url, type } = await reqPromise
+      // 音源脚本遇到不认识的 type 可能返回空 url，当成失败继续降级，免得播放器拿到空链接报个看不懂的错
+      if (!url) throw new Error(requestMsg.fail)
+      return { url, quality: type ?? itemQuality, isFromCache: false }
+    } catch (err: any) {
+      if (isAbortError(err)) throw err
+      console.log(err)
+      lastErr = err
+      // Master/Atmos 是客户端额外加的虚音质，失败一次就记住这个源取不到，免得每首歌都白试一轮
+      if (isMasterQuality(itemQuality)) markQualityUnsupported(musicInfo.source, itemQuality)
+    }
   }
-  return type
+  throw lastErr ?? new Error(window.i18n.t('toggle_source_failed'))
 }
 
 export const getOnlineOtherSourceMusicUrl = async({ musicInfos, quality, onToggleSource, isRefresh, retryedSource = [] }: {
@@ -249,37 +287,32 @@ export const getOnlineOtherSourceMusicUrl = async({ musicInfos, quality, onToggl
   if (!await window.lx.apiInitPromise[0]) throw new Error('source init failed')
 
   let musicInfo: LX.Music.MusicInfoOnline | null = null
-  let itemQuality: LX.Quality | null = null
+  let qualitys: LX.Quality[] | null = null
   // eslint-disable-next-line no-cond-assign
   while (musicInfo = (musicInfos.shift()!)) {
     if (retryedSource.includes(musicInfo.source)) continue
     retryedSource.push(musicInfo.source)
     if (!assertApiSupport(musicInfo.source)) continue
-    itemQuality = quality ?? getPlayQuality(appSetting['player.playQuality'], musicInfo)
-    if (!musicInfo.meta._qualitys[itemQuality]) continue
+    const info = musicInfo
+    qualitys = quality != null ? [quality] : getPlayQualityList(appSetting['player.playQuality'], info)
+    // 这个源至少要能取到阶梯里的某一档，否则换下一个源
+    if (!qualitys.some(q => info.meta._qualitys[q] != null)) continue
 
-    console.log('try toggle to: ', musicInfo.source, musicInfo.name, musicInfo.singer, musicInfo.interval)
-    onToggleSource(musicInfo)
+    console.log('try toggle to: ', info.source, info.name, info.singer, info.interval)
+    onToggleSource(info)
     break
   }
-  if (!musicInfo || !itemQuality) throw new Error(window.i18n.t('toggle_source_failed'))
+  if (!musicInfo || !qualitys) throw new Error(window.i18n.t('toggle_source_failed'))
 
-  const cachedUrl = await getStoreMusicUrl(musicInfo, itemQuality)
-  if (cachedUrl && !isRefresh) return { url: cachedUrl, musicInfo, quality: itemQuality, isFromCache: true }
-
-  let reqPromise
-  try {
-    reqPromise = musicSdk[musicInfo.source].getMusicUrl(toOldMusicInfo(musicInfo), itemQuality).promise
-  } catch (err: any) {
-    reqPromise = Promise.reject(err)
-  }
-  // retryedSource.includes(musicInfo.source)
+  // 异步回调里用常量，避免 TS 丢掉 while 里的类型收窄
+  const targetMusicInfo = musicInfo
+  const targetQualitys = qualitys
   // eslint-disable-next-line @typescript-eslint/promise-function-async
-  return reqPromise.then(({ url, type }: { url: string, type: LX.Quality }) => {
-    return { musicInfo, url, quality: type, isFromCache: false }
+  return getMusicUrlByQualitys({ musicInfo: targetMusicInfo, qualitys: targetQualitys, isRefresh }).then(({ url, quality: type, isFromCache }) => {
+    return { musicInfo: targetMusicInfo, url, quality: type, isFromCache }
     // eslint-disable-next-line @typescript-eslint/promise-function-async
   }).catch((err: any) => {
-    if (err.message == requestMsg.tooManyRequests) throw err
+    if (err?.message == requestMsg.tooManyRequests || err?.message == requestMsg.cancelRequest) throw err
     console.log(err)
     return getOnlineOtherSourceMusicUrl({ musicInfos, quality, onToggleSource, isRefresh, retryedSource })
   })
@@ -302,19 +335,15 @@ export const handleGetOnlineMusicUrl = async({ musicInfo, quality, onToggleSourc
 }> => {
   if (!await window.lx.apiInitPromise[0]) throw new Error('source init failed')
   // console.log(musicInfo.source)
-  const targetQuality = quality ?? getPlayQuality(appSetting['player.playQuality'], musicInfo)
+  // 指定音质时只试一次（下载走这里），否则按设置的音质逐档降级
+  const qualitys = quality != null ? [quality] : getPlayQualityList(appSetting['player.playQuality'], musicInfo)
 
-  let reqPromise
-  try {
-    reqPromise = musicSdk[musicInfo.source].getMusicUrl(toOldMusicInfo(musicInfo), targetQuality).promise
-  } catch (err: any) {
-    reqPromise = Promise.reject(err)
-  }
-  return reqPromise.then(({ url, type }: { url: string, type: LX.Quality }) => {
-    return { musicInfo, url, quality: type, isFromCache: false }
+  // eslint-disable-next-line @typescript-eslint/promise-function-async
+  return getMusicUrlByQualitys({ musicInfo, qualitys, isRefresh }).then(({ url, quality: type, isFromCache }) => {
+    return { musicInfo, url, quality: type, isFromCache }
   }).catch(async(err: any) => {
     console.log(err)
-    if (!allowToggleSource || err.message == requestMsg.tooManyRequests) throw err
+    if (!allowToggleSource || err?.message == requestMsg.tooManyRequests || err?.message == requestMsg.cancelRequest) throw err
     onToggleSource()
     // eslint-disable-next-line @typescript-eslint/promise-function-async
     return getOtherSource(musicInfo).then(otherSource => {

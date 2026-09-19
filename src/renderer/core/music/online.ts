@@ -7,12 +7,12 @@ import {
 } from '@renderer/utils/ipc'
 import {
   buildLyricInfo,
-  getPlayQuality,
   handleGetOnlineLyricInfo,
   handleGetOnlineMusicUrl,
   handleGetOnlinePicUrl,
   getCachedLyricInfo,
 } from './utils'
+import { getPlayQualityList } from './quality'
 
 /* export const setMusicUrl = ({ musicInfo, type, url }: {
   musicInfo: LX.Music.MusicInfo
@@ -51,8 +51,9 @@ export const getMusicUrl = async({ musicInfo, quality, isRefresh, allowToggleSou
 
   //   // return Promise.reject(new Error('该歌曲没有可播放的音频'))
   // }
-  const targetQuality = quality ?? getPlayQuality(appSetting['player.playQuality'], musicInfo)
-  const cachedUrl = await getStoreMusicUrl(musicInfo, targetQuality)
+  // 缓存预探只探降级阶梯最高的一档，取不到时由 handleGetOnlineMusicUrl 逐档降级
+  const targetQualitys = quality != null ? [quality] : getPlayQualityList(appSetting['player.playQuality'], musicInfo)
+  const cachedUrl = await getStoreMusicUrl(musicInfo, targetQualitys[0])
   if (cachedUrl && !isRefresh) return cachedUrl
 
   return handleGetOnlineMusicUrl({ musicInfo, quality, onToggleSource, isRefresh, allowToggleSource }).then(({ url, quality: targetQuality, musicInfo: targetMusicInfo, isFromCache }) => {
