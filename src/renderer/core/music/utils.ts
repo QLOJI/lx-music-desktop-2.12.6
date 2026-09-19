@@ -247,8 +247,10 @@ const getMusicUrlByQualitys = async({ musicInfo, qualitys, isRefresh }: {
     // 先查缓存，命中就直接用，不再往下降级
     const cachedUrl = await getStoreMusicUrl(musicInfo, itemQuality)
     if (cachedUrl && !isRefresh) return { url: cachedUrl, quality: itemQuality, isFromCache: true }
-    // 这个源试这个虚音质连续超时过几次，先跳过一阵子（判断放在缓存探测之后，免得缓存的 Master 取不到）
-    if (!isQualitySupported(musicInfo.source, itemQuality)) continue
+    // 这个源试这个虚音质连续超时过几次，先跳过一阵子（判断放在缓存探测之后，免得缓存的 Master 取不到）。
+    // qualitys.length > 1 这个条件不能少：下载是单档请求（用户明确点了 Master），
+    // 被记忆跳掉就变成一次都不试直接报失败，那才是真·取不到
+    if (qualitys.length > 1 && !isQualitySupported(musicInfo.source, itemQuality)) continue
 
     // 日志里能直接看到这首歌实际去要了什么音质，方便确认 Master 有没有真的去要
     console.log('try quality: ', musicInfo.source, itemQuality, musicInfo.name)
@@ -318,8 +320,10 @@ export const getOnlineOtherSourceMusicUrl = async({ musicInfos, quality, onToggl
     if (!assertApiSupport(musicInfo.source)) continue
     const info = musicInfo
     qualitys = quality != null ? [quality] : getPlayQualityList(appSetting['player.playQuality'], info)
-    // 这个源至少要能取到阶梯里的某一档，否则换下一个源
-    if (!qualitys.some(q => info.meta._qualitys[q] != null)) continue
+    // 这个源至少要能取到阶梯里的某一档，否则换下一个源。
+    // master / atmos 是虚音质，meta._qualitys 里永远没有它们，但一样得放行 ——
+    // 不然下载点了 Master 又取不到的时候，切源会把所有候选源跳光，直接报切换音源失败
+    if (!qualitys.some(q => isMasterQuality(q) || info.meta._qualitys[q] != null)) continue
 
     console.log('try toggle to: ', info.source, info.name, info.singer, info.interval)
     onToggleSource(info)

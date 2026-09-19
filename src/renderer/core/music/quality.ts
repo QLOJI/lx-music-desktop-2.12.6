@@ -1,4 +1,11 @@
 /**
+ * 音质判断的唯一事实来源：小标（components/material/QualityBadge）、播放降级（core/music/utils.ts）、
+ * 下载选档（worker/download/utils.ts）都从这儿取判据，别再各写一套 —— 之前"小标写着 Master、
+ * 播放/下载却按别的音质来"全是几套判据对不上的锅。
+ * 本文件必须保持零依赖（只有常量和纯函数）：下载 worker 也会 import 它，别在这儿引 store / vue。
+ */
+
+/**
  * 音质从高到低的降级顺序。
  * master / atmos 是客户端虚拟出来的音质，不在 meta._qualitys 里，只用于向音源索取。
  */
@@ -156,3 +163,9 @@ export const isQualitySupported = (source: LX.Source, quality: LX.Quality): bool
 export const resetQualityFailures = () => {
   qualityFailCounts.clear()
 }
+
+/**
+ * 老名字，留着给还没同步过来的树用（apiSource.ts 的早期版本 import 的是这个）。
+ * 行为跟 resetQualityFailures 一模一样，新代码一律用上面那个。
+ */
+export const clearQualityUnsupported = resetQualityFailures
